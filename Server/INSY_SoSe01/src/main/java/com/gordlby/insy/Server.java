@@ -246,7 +246,7 @@ public class Server {
 
     /**
      * Handler class to place an order
-     * ToDo: null
+     * ToDo: Ready
      */
     class PlaceOrderHandler implements HttpHandler {
         @Override
