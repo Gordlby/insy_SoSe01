@@ -24,12 +24,13 @@ public class Server {
     /**
      * Connect to the database
      * @throws IOException
+     * ToDo: Ready
      */
     Connection setupDB()  {
         String rootPath = Thread.currentThread().getContextClassLoader().getResource("").getPath();
         Properties dbProps = new Properties();
         try {
-            dbProps.load(new FileInputStream(rootPath + "db.properties"));
+            dbProps.load(new FileInputStream(rootPath.replace("Server/INSY_SoSe01/target/classes/", "") + "db.properties"));
             return DriverManager.getConnection(dbProps.getProperty("url"), dbProps);
         } catch (Exception throwables) {
             throwables.printStackTrace();
@@ -40,6 +41,7 @@ public class Server {
     /**
      * Startup the Webserver
      * @throws IOException
+     * ToDo: Ready
      */
     public void start() throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
@@ -69,6 +71,7 @@ public class Server {
 
     /**
      * Handler for listing all articles
+     * ToDo: Ready | Select ONLY
      */
     class ArticlesHandler implements HttpHandler {
         @Override
@@ -102,6 +105,7 @@ public class Server {
 
     /**
      * Handler for listing all clients
+     * ToDo: Ready | Select ONLY
      */
     class ClientsHandler implements HttpHandler {
         @Override
@@ -135,6 +139,7 @@ public class Server {
 
     /**
      * Handler for listing all orders
+     * ToDo: Ready | Select ONLY
      */
     class OrdersHandler implements HttpHandler {
         @Override
@@ -172,6 +177,7 @@ public class Server {
 
     /**
      * Handler for viewing an order
+     * ToDo: Ready
      */
     class OrderHandler implements HttpHandler {
         @Override
@@ -182,6 +188,8 @@ public class Server {
 
             JSONObject res = new JSONObject();
             try {
+                conn.setAutoCommit(false);
+                conn.createStatement().execute("LOCK TABLE clients, orders, order_lines, articles IN SHARE MODE;");
                 String query = "SELECT o.id, c.name, count(*), sum(l.amount * a.price) " +
                         "FROM orders o, clients c, order_lines l, articles a " +
                         "WHERE o.id = ? and l.article_id = a.id and l.order_id = o.id and o.client_id = c.id " +
@@ -219,6 +227,10 @@ public class Server {
                 rs2.close();
                 st.close();
 
+                conn.commit();
+                conn.setAutoCommit(true);
+                conn.close();
+
                 response = res.toString();
             } catch (SQLException throwables) {
                 throwables.printStackTrace();
@@ -234,6 +246,7 @@ public class Server {
 
     /**
      * Handler class to place an order
+     * ToDo: null
      */
     class PlaceOrderHandler implements HttpHandler {
         @Override
@@ -242,66 +255,92 @@ public class Server {
             Connection conn = setupDB();
             Map <String,String> params  = queryToMap(t.getRequestURI().getQuery());
 
-            int client_id = Integer.parseInt(params.get("client_id"));
 
             String response = "";
-            int order_id = 1;
-            try {
-                Statement st1 = conn.createStatement();
 
-                // Get the next free order id
-                ResultSet rs1 = st1.executeQuery("SELECT MAX(id)+1 from orders");
-                if (rs1.next())
-                    order_id = rs1.getInt(1);
+            while (!response.startsWith("{")) {
+                try {
+                    conn.setAutoCommit(false);
+                    conn.createStatement().execute("LOCK TABLE clients, orders, order_lines, articles IN EXCLUSIVE MODE;");
 
-                // Just to demonstrate a possible race condition
-                sleep(5);
+                    int order_id = 1;
+                    int client_id = Integer.parseInt(params.get("client_id"));
 
-                // Create order
-                PreparedStatement st2 = conn.prepareStatement("INSERT INTO orders (id, client_id) VALUES (?,?)");
-                st2.setInt(1, order_id);
-                st2.setInt(2, client_id);
-                st2.executeUpdate();
+                    Statement st1 = conn.createStatement();
 
-                for (int i = 1; i <= (params.size()-1) / 2; ++i ){
-                    int article_id = Integer.parseInt(params.get("article_id_"+i));
-                    int amount = Integer.parseInt(params.get("amount_"+i));
+                    // Get the next free order id
+                    ResultSet rs1 = st1.executeQuery("SELECT MAX(id)+1 from orders");
+                    if (rs1.next())
+                        order_id = rs1.getInt(1);
 
-                    PreparedStatement stGetAmount = conn.prepareStatement("SELECT amount FROM articles WHERE id = ?");
-                    stGetAmount.setInt(1, article_id);
-                    ResultSet rsAmount = stGetAmount.executeQuery();
-                    if (!rsAmount.next())
-                        throw new IllegalArgumentException("Article does not exist");
-                    int available = rsAmount.getInt(1);
-
-                    // Simulate some slow task here like warehouse lookup for available items.
+                    // Just to demonstrate a possible race condition
                     sleep(5);
 
-                    if (available < amount)
-                        throw new IllegalArgumentException(String.format("Not enough items of article #%d available", article_id));
+                    // Create order
+                    PreparedStatement st2 = conn.prepareStatement("INSERT INTO orders (id, client_id) VALUES (?,?)");
+                    st2.setInt(1, order_id);
+                    st2.setInt(2, client_id);
+                    st2.executeUpdate();
 
-                    PreparedStatement stSetAmount = conn.prepareStatement("UPDATE articles SET amount = amount - ? WHERE id = ?");
-                    stSetAmount.setInt(1, amount);
-                    stSetAmount.setInt(2, article_id);
-                    stSetAmount.executeUpdate();
+                    for (int i = 1; i <= (params.size()-1) / 2; ++i ){
+                        int article_id = Integer.parseInt(params.get("article_id_"+i));
+                        int amount = Integer.parseInt(params.get("amount_"+i));
 
-                    // Simulate a possible general random error
-                    if(Math.random() > 0.95){
-                        throw new RuntimeException();
+                        PreparedStatement stGetAmount = conn.prepareStatement("SELECT amount FROM articles WHERE id = ?");
+                        stGetAmount.setInt(1, article_id);
+                        ResultSet rsAmount = stGetAmount.executeQuery();
+                        if (!rsAmount.next())
+                            throw new IllegalArgumentException("Article does not exist");
+                        int available = rsAmount.getInt(1);
+
+                        // Simulate some slow task here like warehouse lookup for available items.
+                        sleep(5);
+
+                        if (available < amount)
+                            throw new IllegalArgumentException(String.format("Not enough items of article #%d available", article_id));
+
+                        PreparedStatement stSetAmount = conn.prepareStatement("UPDATE articles SET amount = amount - ? WHERE id = ?");
+                        stSetAmount.setInt(1, amount);
+                        stSetAmount.setInt(2, article_id);
+                        stSetAmount.executeUpdate();
+
+                        // Simulate a possible general random error
+                        if(Math.random() > 0.95){
+                            throw new RuntimeException();
+                        }
+
+                        PreparedStatement stInsert = conn.prepareStatement("INSERT INTO order_lines (order_id,article_id,amount) VALUES (?,?,?)");
+                        stInsert.setInt(1, order_id);
+                        stInsert.setInt(2, article_id);
+                        stInsert.setInt(3, amount);
+                        stInsert.executeUpdate();
                     }
 
-                    PreparedStatement stInsert = conn.prepareStatement("INSERT INTO order_lines (order_id,article_id,amount) VALUES (?,?,?)");
-                    stInsert.setInt(1, order_id);
-                    stInsert.setInt(2, article_id);
-                    stInsert.setInt(3, amount);
-                    stInsert.executeUpdate();
-                }
+                    conn.commit();
+                    conn.setAutoCommit(true);
 
-                response = String.format("{\"order_id\": %d}", order_id);
-            } catch (SQLException throwables) {
-                throwables.printStackTrace();
-            } catch (IllegalArgumentException iae) {
-                response = String.format("{\"error\":\"%s\"}", iae.getMessage());
+                    response = String.format("{\"order_id\": %d}", order_id);
+                } catch (SQLException throwables) {
+                    try {
+                        if (conn != null) {
+                            conn.rollback();
+                        }
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                    throwables.printStackTrace();
+                } catch (IllegalArgumentException iae) {
+                    response = String.format("{\"error\":\"%s\"}", iae.getMessage());
+                } finally {
+                    try {
+                        if (conn != null) {
+                            conn.setAutoCommit(true);
+                            conn.close();
+                        }
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                }
             }
 
             answerRequest(t, response);
@@ -312,6 +351,7 @@ public class Server {
 
     /**
      * Handler for listing static index page
+     * ToDo: Ready
      */
     class IndexHandler implements HttpHandler {
         @Override
@@ -335,25 +375,26 @@ public class Server {
 
     /**
      * Handler for some statistics about clients and orders
+     * ToDo: Ready
      */
     class StatsHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange t) throws IOException {
 
             Connection conn = setupDB();
+
             JSONObject res = new JSONObject();
 
             JSONArray overview = new JSONArray();
 
             Statement st = null;
             try {
+                conn.setAutoCommit(false);
+                conn.createStatement().execute("LOCK TABLE clients, orders, order_lines, articles IN SHARE MODE;");
                 st = conn.createStatement();
 
                 // Get overview of orders by country
-                ResultSet rs = st.executeQuery(("SELECT c.country, count(distinct c.id), count(distinct o.id) " +
-                        "FROM clients c, orders o " +
-                        "WHERE c.id = o.client_id " +
-                        "GROUP BY country"));
+                ResultSet rs = st.executeQuery(("SELECT c.country, count(distinct c.id), count(distinct o.id)  FROM clients c, orders o WHERE c.id = o.client_id GROUP BY country"));
 
                 // Simulate some very complicated calculations here
                 sleep(15);
@@ -365,6 +406,7 @@ public class Server {
                     c.put("num_clients", rs.getInt(2));
                     c.put("num_orders", rs.getInt(3));
                     overview.put(c);
+                    System.out.println(overview);
 
                     // Get detailed list of each order for the country
                     JSONArray orders = new JSONArray();
@@ -381,6 +423,9 @@ public class Server {
                     }
                     res.put(country,orders);
                 }
+                conn.commit();
+                conn.setAutoCommit(true);
+                conn.close();
 
             } catch (SQLException throwables) {
                 throwables.printStackTrace();
@@ -397,6 +442,7 @@ public class Server {
      * @param t HttpExchange of the request
      * @param response Answer to send
      * @throws IOException
+     * ToDo: Ready
      */
     private void answerRequest(HttpExchange t, String response) throws IOException {
         byte[] payload = response.getBytes();
@@ -410,6 +456,7 @@ public class Server {
      * Helper method to parse query paramaters
      * @param query
      * @return
+     * ToDo: Ready
      */
     public static Map<String, String> queryToMap(String query){
         Map<String, String> result = new HashMap<String, String>();
@@ -427,6 +474,7 @@ public class Server {
     /**
      * Helper method to simulate calculations in order to provoke race conditions
      * @param secs Time to sleep in seconds
+     * ToDo: Ready
      */
     public static void sleep(int secs) {
         try {

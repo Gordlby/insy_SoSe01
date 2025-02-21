@@ -2,7 +2,7 @@ services:
 
   postgres:
     image: postgres:latest
-    container_name: postgresWiSe012
+    container_name: postgresSoSe01
     environment:
       POSTGRES_USER: postgrestgm
       POSTGRES_PASSWORD: gordlbypassword
@@ -14,7 +14,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4
-    container_name: pgadminWiSe012
+    container_name: pgadminSoSe01
     environment:
       PGADMIN_DEFAULT_EMAIL: postgrestgm@gordlby.at
       PGADMIN_DEFAULT_PASSWORD: M5Wv@4Vr*^1r3@85sS3N
@@ -23,7 +23,7 @@ services:
     depends_on:
       - postgres
     volumes:
-      - /Users/marcprochazka/Library/CloudStorage/OneDrive-tgm-DieSchulederTechnik/01_4BHIT/INSY/WiSe012/data/pgadmin:/var/lib/pgadmin
+      - /Users/marcprochazka/Library/CloudStorage/OneDrive-tgm-DieSchulederTechnik/01_4BHIT/INSY/SoSe01/data/pgadmin:/var/lib/pgadmin
 
 volumes:
   postgres-data:
